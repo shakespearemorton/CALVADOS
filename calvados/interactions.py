@@ -43,12 +43,51 @@ def init_ah_interactions(eps,rc,fixed_lambda):
     print(4*eps*((0.68/rc)**12-(0.68/rc)**6)*unit.kilojoules_per_mole)
     return ah
 
+def init_ah_interactions_alc(eps,rc,fixed_lambda,lambda_alc):
+    """ Define Ashbaugh-Hatch interactions. """
+
+    # intermolecular interactions
+    energy_expression = f'{eps}*select(step(r-2^(1/6)*s),4*l*((s/r)^12-(s/r)^6-shift),4*((s/r)^12-(s/r)^6-l*shift)+(1-l))*scale'
+    ah = openmm.CustomNonbondedForce(energy_expression+f'; scale=select(step(abs(alc1-alc2)-0.5),lambda_alc,1.0); l=select(id1+id2,(id1*id2)*0.5*(l1+l2),{fixed_lambda}); shift=(s/{rc})^12-(s/{rc})^6; s=0.5*(s1+s2)')
+
+    ah.addPerParticleParameter('s')
+    ah.addPerParticleParameter('l')
+    ah.addPerParticleParameter('id')
+    ah.addPerParticleParameter('alc')
+    ah.addGlobalParameter('lambda_alc', lambda_alc)
+
+    ah.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
+    ah.setCutoffDistance(rc*unit.nanometer)
+    ah.setForceGroup(0)
+
+    print('Ashbaugh-Hatch potential between particles with lambda=1 and sigma=0.68 at',rc*unit.nanometer,end=': ')
+    print(4*eps*((0.68/rc)**12-(0.68/rc)**6)*unit.kilojoules_per_mole)
+    return ah
+
 def init_yu_interactions(eps, k, rc):
     """ Define Yukawa interactions. """
 
     shift = np.exp(-k*rc)/rc
     yu = openmm.CustomNonbondedForce(f'q*{eps}*(exp(-{k}*r)/r-{shift}); q=q1*q2')
     yu.addPerParticleParameter('q')
+
+    print('Debye-Hückel potential between unit charges at',rc*unit.nanometer,end=': ')
+    print(eps*shift*unit.kilojoules_per_mole)
+
+    yu.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
+    yu.setCutoffDistance(rc*unit.nanometer)
+    yu.setForceGroup(1)
+
+    return yu
+
+def init_yu_interactions_alc(eps, k, rc, lambda_alc):
+    """ Define Yukawa interactions. """
+
+    shift = np.exp(-k*rc)/rc
+    yu = openmm.CustomNonbondedForce(f'scale*q*{eps}*(exp(-{k}*r)/r-{shift}); scale=select(step(abs(alc1-alc2)-0.5),lambda_alc,1.0); q=q1*q2')
+    yu.addPerParticleParameter('q')
+    yu.addPerParticleParameter('alc')
+    yu.addGlobalParameter('lambda_alc', lambda_alc)
 
     print('Debye-Hückel potential between unit charges at',rc*unit.nanometer,end=': ')
     print(eps*shift*unit.kilojoules_per_mole)

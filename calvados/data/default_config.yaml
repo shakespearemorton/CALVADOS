@@ -38,3 +38,7 @@ gpu_id: 0
 custom_restraints : false
 custom_restraint_type : 'harmonic'
 fcustom_restraints : 'custom_restraints.txt'
+
+alchemical : false
+lambda_alc_ah : 1.0
+lambda_alc_yu : 1.0

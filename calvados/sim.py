@@ -150,9 +150,13 @@ class Sim:
         self.count_components()
 
         # init interactions
-        self.ah, self.yu = interactions.init_nonbonded_interactions(
-            self.eps_lj,self.cutoff_lj,self.eps_yu,self.k_yu,self.cutoff_yu,self.fixed_lambda
-            )
+        if self.alchemical:
+            self.ah = interactions.init_ah_interactions_alc(self.eps_lj, self.cutoff_lj, self.fixed_lambda, self.lambda_alc_ah)
+            self.yu = interactions.init_yu_interactions_alc(self.eps_yu, self.k_yu, self.cutoff_yu, self.lambda_alc_yu)
+        else:
+            self.ah, self.yu = interactions.init_nonbonded_interactions(
+                self.eps_lj,self.cutoff_lj,self.eps_yu,self.k_yu,self.cutoff_yu,self.fixed_lambda
+                )
         if self.nlipids > 0:
             self.cos, self.cn = interactions.init_lipid_interactions(
             self.eps_lj,self.eps_yu,self.cutoff_yu,factor=1.9
@@ -388,6 +392,8 @@ class Sim:
                 self.ah.addParticle([sig*unit.nanometer, lam, 0])
             elif comp.molecule_type == 'crowder':
                 self.ah.addParticle([sig*unit.nanometer, lam, -1])
+            elif self.alchemical:
+                self.ah.addParticle([sig * unit.nanometer, lam, 1, comp.alc])
             else: # protein, RNA
                 self.ah.addParticle([sig*unit.nanometer, lam, 1])
             if self.nlipids > 0 or self.ncookelipids > 0:
@@ -397,7 +403,10 @@ class Sim:
                     self.cos.addParticle([sig*unit.nanometer, lam, 1])
         # Add Debye-Huckel
         for q in comp.qs:
-            self.yu.addParticle([q])
+            if self.alchemical:
+                self.yu.addParticle([q, comp.alc])
+            else:
+                self.yu.addParticle([q])
 
         # Add Charge-Nonpolar Interaction
         if self.nlipids > 0 or self.ncookelipids > 0:

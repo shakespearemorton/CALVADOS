@@ -52,6 +52,7 @@ class Component:
         self.mws = np.array([self.residues.loc[s].MW for s in self.seq])
         self.qs, _ = get_qs(self.seq,flexhis=True,pH=pH,residues=self.residues)
         self.alphas = self.lambdas*self.alpha
+        self.alc = getattr(self, 'alc', 0)
         self.init_bond_force()
 
     def calc_dmap(self):
@@ -88,11 +89,12 @@ class Component:
             for j in range(i, self.nbeads):
                 if self.bond_check(i,j):
                     d = self.calc_bondlength(i, j)
-                    bidx = self.hb.addBond(
-                        i+offset, j+offset, d*unit.nanometer,
-                        self.kb*unit.kilojoules_per_mole/(unit.nanometer**2))
-                    self.bond_pairlist.append([i+offset+1,j+offset+1,bidx,d,self.kb]) # 1-based
-                    exclusion_map.append([i+offset,j+offset])
+                    if self.alc == 0:
+                        bidx = self.hb.addBond(
+                            i+offset, j+offset, d*unit.nanometer,
+                            self.kb*unit.kilojoules_per_mole/(unit.nanometer**2))
+                        self.bond_pairlist.append([i+offset+1,j+offset+1,bidx,d,self.kb]) # 1-based
+                        exclusion_map.append([i+offset,j+offset])
         return exclusion_map
 
     def get_forces(self):
