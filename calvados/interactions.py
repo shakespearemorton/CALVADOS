@@ -43,7 +43,7 @@ def init_ah_interactions(eps,rc,fixed_lambda):
     print(4*eps*((0.68/rc)**12-(0.68/rc)**6)*unit.kilojoules_per_mole)
     return ah
 
-def init_ah_interactions_alc(eps, rc, fixed_lambda, lambda_alc, alpha_sc=0.5):
+def init_ah_interactions_alc(eps, rc, fixed_lambda, lambda_alc_ah, alpha_sc=0.5):
     """ Ashbaugh-Hatch with Beutler soft-core on alchemical pairs. """
 
     # r_eff = s * (alpha*(1-lambda_alc)^2 + (r/s)^6)^(1/6) for alchemical pairs
@@ -53,8 +53,8 @@ def init_ah_interactions_alc(eps, rc, fixed_lambda, lambda_alc, alpha_sc=0.5):
         f'{eps}*select(step(reff-2^(1/6)*s),'
         f'4*l*((s/reff)^12-(s/reff)^6-shift),'
         f'4*((s/reff)^12-(s/reff)^6-l*shift)+(1-l))*scale;'
-        f'reff = select(alc_pair, s*(({alpha_sc}*(1-lambda_alc)^2 + (r/s)^6))^(1/6), r);'
-        f'scale = select(alc_pair, lambda_alc, 1.0);'
+        f'reff = select(alc_pair, s*(({alpha_sc}*(1-lambda_alc_ah)^2 + (r/s)^6))^(1/6), r);'
+        f'scale = select(alc_pair, lambda_alc_ah, 1.0);'
         f'alc_pair = step(abs(alc1-alc2)-0.5);'
         f'l = select(id1+id2, (id1*id2)*0.5*(l1+l2), {fixed_lambda});'
         f'shift = (s/{rc})^12-(s/{rc})^6;'
@@ -66,7 +66,7 @@ def init_ah_interactions_alc(eps, rc, fixed_lambda, lambda_alc, alpha_sc=0.5):
     ah.addPerParticleParameter('l')
     ah.addPerParticleParameter('id')
     ah.addPerParticleParameter('alc')
-    ah.addGlobalParameter('lambda_alc', lambda_alc)
+    ah.addGlobalParameter('lambda_alc_ah', lambda_alc_ah)
 
     ah.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
     ah.setCutoffDistance(rc*unit.nanometer)
@@ -89,14 +89,14 @@ def init_yu_interactions(eps, k, rc):
 
     return yu
 
-def init_yu_interactions_alc(eps, k, rc, lambda_alc):
+def init_yu_interactions_alc(eps, k, rc, lambda_alc_yu):
     """ Define Yukawa interactions. """
 
     shift = np.exp(-k*rc)/rc
-    yu = openmm.CustomNonbondedForce(f'scale*q*{eps}*(exp(-{k}*r)/r-{shift}); scale=select(step(abs(alc1-alc2)-0.5),lambda_alc,1.0); q=q1*q2')
+    yu = openmm.CustomNonbondedForce(f'scale*q*{eps}*(exp(-{k}*r)/r-{shift}); scale=select(step(abs(alc1-alc2)-0.5),lambda_alc_yu,1.0); q=q1*q2')
     yu.addPerParticleParameter('q')
     yu.addPerParticleParameter('alc')
-    yu.addGlobalParameter('lambda_alc', lambda_alc)
+    yu.addGlobalParameter('lambda_alc_yu', lambda_alc_yu)
 
     print('Debye-Hückel potential between unit charges at',rc*unit.nanometer,end=': ')
     print(eps*shift*unit.kilojoules_per_mole)
