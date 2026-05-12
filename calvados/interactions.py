@@ -43,13 +43,25 @@ def init_ah_interactions(eps,rc,fixed_lambda):
     print(4*eps*((0.68/rc)**12-(0.68/rc)**6)*unit.kilojoules_per_mole)
     return ah
 
-def init_ah_interactions_alc(eps,rc,fixed_lambda,lambda_alc):
-    """ Define Ashbaugh-Hatch interactions. """
+def init_ah_interactions_alc(eps, rc, fixed_lambda, lambda_alc, alpha_sc=0.5):
+    """ Ashbaugh-Hatch with Beutler soft-core on alchemical pairs. """
 
-    # intermolecular interactions
-    energy_expression = f'{eps}*select(step(r-2^(1/6)*s),4*l*((s/r)^12-(s/r)^6-shift),4*((s/r)^12-(s/r)^6-l*shift)+(1-l))*scale'
-    ah = openmm.CustomNonbondedForce(energy_expression+f'; scale=select(step(abs(alc1-alc2)-0.5),lambda_alc,1.0); l=select(id1+id2,(id1*id2)*0.5*(l1+l2),{fixed_lambda}); shift=(s/{rc})^12-(s/{rc})^6; s=0.5*(s1+s2)')
+    # r_eff = s * (alpha*(1-lambda_alc)^2 + (r/s)^6)^(1/6) for alchemical pairs
+    # r_eff = r                                              for non-alchemical pairs
 
+    energy_expression = (
+        f'{eps}*select(step(reff-2^(1/6)*s),'
+        f'4*l*((s/reff)^12-(s/reff)^6-shift),'
+        f'4*((s/reff)^12-(s/reff)^6-l*shift)+(1-l))*scale;'
+        f'reff = select(alc_pair, s*(({alpha_sc}*(1-lambda_alc)^2 + (r/s)^6))^(1/6), r);'
+        f'scale = select(alc_pair, lambda_alc, 1.0);'
+        f'alc_pair = step(abs(alc1-alc2)-0.5);'
+        f'l = select(id1+id2, (id1*id2)*0.5*(l1+l2), {fixed_lambda});'
+        f'shift = (s/{rc})^12-(s/{rc})^6;'
+        f's = 0.5*(s1+s2)'
+    )
+
+    ah = openmm.CustomNonbondedForce(energy_expression)
     ah.addPerParticleParameter('s')
     ah.addPerParticleParameter('l')
     ah.addPerParticleParameter('id')
@@ -59,9 +71,6 @@ def init_ah_interactions_alc(eps,rc,fixed_lambda,lambda_alc):
     ah.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
     ah.setCutoffDistance(rc*unit.nanometer)
     ah.setForceGroup(0)
-
-    print('Ashbaugh-Hatch potential between particles with lambda=1 and sigma=0.68 at',rc*unit.nanometer,end=': ')
-    print(4*eps*((0.68/rc)**12-(0.68/rc)**6)*unit.kilojoules_per_mole)
     return ah
 
 def init_yu_interactions(eps, k, rc):
