@@ -35,6 +35,7 @@ dependencies = [
     "statsmodels",
     "numba",
     "scipy",
+    "pytest>=8.4.2",
 ]
 
 [project.optional-dependencies]
