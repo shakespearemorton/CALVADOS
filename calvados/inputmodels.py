@@ -16,6 +16,7 @@ from pydantic import (
 
 MoleculeType: TypeAlias = Literal[
     "protein",
+    "complex",
     "rna",
     "lipid",
     "cooke_lipid",
@@ -87,6 +88,8 @@ class ComponentInput(BaseModel):
 
     ptm_name: str = "example_ptm"
     ptm_locations: list[PositiveInt] = Field(default_factory=list)
+
+    chain: str | None = None
 
     @model_validator(mode="after")
     def validate_component_inputs(self) -> Self:

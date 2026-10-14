@@ -89,7 +89,6 @@ class Sim:
         for name, comp_params in self.comp_dict.items():
             component_class = COMPONENT_REGISTRY[comp_params.molecule_type]
             comp = component_class(name, comp_params)
-
             comp.calc_properties(
                 pH=self.config.pH,
                 verbose=self.config.verbose,
@@ -279,6 +278,8 @@ class Sim:
                     'rna',
                 ]:
                     _ = self.place_molecule(comp)
+                elif comp.params.molecule_type == 'complex':
+                    _ = self.place_complex(comp)
                 elif comp.params.molecule_type in ['lipid','cooke_lipid']:
                     _ = self.place_bilayer(comp)
                 self.add_interactions(comp)
@@ -422,6 +423,13 @@ class Sim:
             self.pos.append(x)
             self.nparticles += 1
         return np.array(xs, dtype=np.float64)
+    
+    def place_complex(self, comp: Component, ntries: int = 10000) -> FloatArray:
+        """
+        Place complexes
+        """
+
+        return
 
     def place_bilayer(self, comp: Component, ntries: int = 10000) -> FloatArray:
         """

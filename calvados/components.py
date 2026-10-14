@@ -22,6 +22,7 @@ from .sequence import (
     patch_terminal_qs,
     read_fasta,
     seq_from_pdb,
+    chains_from_pdb
 )
 
 
@@ -190,6 +191,49 @@ class Component:
             raise FileNotFoundError("" \
             f"Neither structure file {cif_file} nor {pdb_file} found."
             )
+        
+class Complex(Component):
+    
+    def calc_comp_seq(self) -> None:
+        pdb_file = f"{self.params.pdb_folder}/{self.name}.pdb"
+        cif_file = f"{self.params.pdb_folder}/{self.name}.cif"
+        if os.path.isfile(cif_file):
+            self.seq, self.n_termini, self.c_termini = chains_from_pdb(cif_file)
+        else:
+            self.seq, self.n_termini, self.c_termini = chains_from_pdb(pdb_file)
+
+    def calc_properties(
+            self,
+            pH: float = 7.0,
+            verbose: bool = False,
+            eps_lj: float = 0.2,
+    ) -> None:
+        """Calculate protein properties and initial coordinates."""
+        super().calc_properties(pH=pH, verbose=verbose, eps_lj=eps_lj)
+
+        # fix charge and mw of termini
+        if verbose:
+            print(
+                f"Adding charges for {self.params.charge_termini} termini of {self.name}.",
+                flush=True,
+            )
+        self.qs = patch_terminal_qs(
+            self.qs, self.n_termini, self.c_termini, loc=self.params.charge_termini
+        )
+        self.mws = patch_terminal_mws(
+            self.mws, self.n_termini, self.c_termini, loc=self.params.charge_termini
+        )
+
+        if self.params.restraint:
+            self.calc_x_from_pdb()
+            self.calc_dmap()
+            if self.params.restraint_type == "harmonic":
+                self.calc_ssdomains()
+            elif self.params.restraint_type == "go":
+                self.calc_go_scale()
+        else:
+            self.calc_x_setup()
+
 
 class Protein(Component):
     """Represent a one-bead-per-residue protein component.
@@ -1004,6 +1048,7 @@ class PTMProtein(Protein):
 
 COMPONENT_REGISTRY: dict[str, type[Component]] = {
     "protein": Protein,
+    "complex": Complex,
     "lipid": Lipid,
     "cooke_lipid": Lipid,
     "crowder": Crowder,

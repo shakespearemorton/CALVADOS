@@ -33,6 +33,34 @@ def read_fasta(ffasta: InputPath) -> dict[str, SeqRecord]:
         SeqIO.to_dict(SeqIO.parse(ffasta, "fasta")), # type: ignore
     )
 
+def chains_from_pdb(pdb: str):
+        """
+        Extract chains from a PDB file and create components for each chain.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            if pdb.lower().endswith(".cif"):
+                pdbx = app.pdbxfile.PDBxFile(pdb)
+                u = Universe(pdbx)
+            else:
+                u = Universe(pdb)
+        sequences = {}
+        for i, chain in enumerate(u.segments):
+            seq_3 = chain.residues.resnames
+            seq_1 = ""
+            for res in seq_3:
+                seq_1 += convert_aa_code(res)
+            sequences[i] = seq_1
+        print(sequences)
+        n_termini = []
+        c_termini = []
+        seq_prev = 0
+        for seq in sequences:
+            l = len(sequences[seq])
+            n_termini.append(0+seq_prev)
+            c_termini.append(l - 1)
+            seq_prev += l
+        return sequences, n_termini, c_termini
 
 def seq_from_pdb(
     pdb: str,
@@ -69,6 +97,8 @@ def seq_from_pdb(
             res1 = "X"
         sequence.extend(res1)
     fastapdb = "".join(sequence) if fmt == "string" else sequence
+    print(f"Extracted sequence from {pdb}: {fastapdb}")
+    print(f"N-termini: {n_termini}, C-termini: {c_termini}")
     return fastapdb, n_termini, c_termini
 
 
