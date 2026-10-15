@@ -31,8 +31,10 @@ defaults:
   ptm_name: example_ptm
   ptm_locations: []
   chain: null
+  extra_chains: {}
   fresidues: /Users/williammorton/CALVADOS/examples/slim_domain/input/residues_CALVADOS3.csv
 system:
   test:
-    chain: A
     nmol: 1
+    extra_chains:
+      B: 10

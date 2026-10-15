@@ -12,8 +12,9 @@ from openmm.unit import (
 )
 from pandas import read_csv
 from scipy.special import expit
+from yaml import safe_load
 
-from . import build, interactions
+from . import build, interactions, structure
 from .analysis import self_distances
 from .inputmodels import ComponentInput, InputPath
 from .sequence import (
@@ -22,7 +23,6 @@ from .sequence import (
     patch_terminal_qs,
     read_fasta,
     seq_from_pdb,
-    chains_from_pdb
 )
 
 
@@ -192,49 +192,6 @@ class Component:
             f"Neither structure file {cif_file} nor {pdb_file} found."
             )
         
-class Complex(Component):
-    
-    def calc_comp_seq(self) -> None:
-        pdb_file = f"{self.params.pdb_folder}/{self.name}.pdb"
-        cif_file = f"{self.params.pdb_folder}/{self.name}.cif"
-        if os.path.isfile(cif_file):
-            self.seq, self.n_termini, self.c_termini = chains_from_pdb(cif_file)
-        else:
-            self.seq, self.n_termini, self.c_termini = chains_from_pdb(pdb_file)
-
-    def calc_properties(
-            self,
-            pH: float = 7.0,
-            verbose: bool = False,
-            eps_lj: float = 0.2,
-    ) -> None:
-        """Calculate protein properties and initial coordinates."""
-        super().calc_properties(pH=pH, verbose=verbose, eps_lj=eps_lj)
-
-        # fix charge and mw of termini
-        if verbose:
-            print(
-                f"Adding charges for {self.params.charge_termini} termini of {self.name}.",
-                flush=True,
-            )
-        self.qs = patch_terminal_qs(
-            self.qs, self.n_termini, self.c_termini, loc=self.params.charge_termini
-        )
-        self.mws = patch_terminal_mws(
-            self.mws, self.n_termini, self.c_termini, loc=self.params.charge_termini
-        )
-
-        if self.params.restraint:
-            self.calc_x_from_pdb()
-            self.calc_dmap()
-            if self.params.restraint_type == "harmonic":
-                self.calc_ssdomains()
-            elif self.params.restraint_type == "go":
-                self.calc_go_scale()
-        else:
-            self.calc_x_setup()
-
-
 class Protein(Component):
     """Represent a one-bead-per-residue protein component.
 
@@ -1046,9 +1003,113 @@ class PTMProtein(Protein):
         # PTM-PTM bond
         return bool(i >= self.nbeads_protein and j == i + 1 and j not in ptm_seqlocs)
 
+class ComplexChain(Protein):
+    """Represent one protein chain of a complex.
+
+    Sequence and coordinates come from the complex structure, relative to the
+    complex centre of mass, so that all chains keep their relative orientation.
+    """
+
+    def __init__(
+            self,
+            name: str,
+            params: ComponentInput,
+            seq: str,
+            xinit: NDArray[np.float64],
+        ):
+        """Initialize a chain from its sequence and structure coordinates."""
+        super().__init__(name, params)
+        self.chain_seq = seq
+        self.chain_xinit = xinit
+
+    def calc_comp_seq(self) -> None:
+        """Use the sequence read from the complex structure."""
+        self.seq = self.chain_seq
+        self.n_termini = [0]
+        self.c_termini = [len(self.seq) - 1]
+
+    def calc_x_from_pdb(self) -> None:
+        """Use the coordinates read from the complex structure."""
+        self.xinit = self.chain_xinit.copy()
+
+    def calc_ssdomains(self) -> None:
+        """Load structured domains; chains without any are disordered."""
+        assert self.params.fdomains is not None
+        with open(self.params.fdomains) as f:
+            domains = safe_load(f) or {}
+        if any(domains.get(self.name) or []):
+            super().calc_ssdomains()
+        else:
+            self.ssdomains = []
+
+
+class ComplexGroup:
+    """Represent a multi-chain complex read from one structure file.
+
+    Each protein chain becomes a :class:`ComplexChain` named
+    ``{complex}_{chain}``, whose domains are set in ``fdomains`` under that
+    name. Every copy of the complex places all chains as one unit.
+    The chain components' ``nmol`` is the number of extra free copies.
+    """
+
+    def __init__(self, name: str, params: ComponentInput):
+        """Read every protein chain of the complex structure."""
+        if not params.restraint or params.restraint_type != "harmonic":
+            raise ValueError(
+                f"Complex {name!r} requires restraint=True with harmonic restraints."
+            )
+        assert params.pdb_folder is not None
+        self.name = name
+        self.nmol = params.nmol
+
+        u = structure.load_universe(
+            Component.get_input_structure_file(params.pdb_folder, name)
+        )
+        chains = structure.polymer_chains(u)
+        unknown = set(params.extra_chains) - set(chains)
+        if unknown:
+            raise ValueError(
+                f"extra_chains {sorted(unknown)} are not chains of complex {name!r}; "
+                f"available: {list(chains)}"
+            )
+        for chain, kind in chains.items():
+            if kind == "rna":
+                self.add_rna_chain(chain)
+
+        protein = [chain for chain, kind in chains.items() if kind == "protein"]
+        ags = {chain: structure.select_chain(u, chain) for chain in protein}
+        origin = sum(ags.values()).center_of_mass() / 10.0  # complex COM in nm
+
+        self.members: list[Component] = []
+        for chain in protein:
+            chain_params = params.model_copy(update={
+                "name": f"{name}_{chain}",
+                "molecule_type": "protein",
+                "nmol": params.extra_chains.get(chain, 0),
+            })
+            self.members.append(ComplexChain(
+                chain_params.name,
+                chain_params,
+                seq=structure.protein_sequence(ags[chain]),
+                xinit=structure.positions(ags[chain], params.use_com, origin),
+            ))
+
+    def add_rna_chain(self, chain: str) -> None:
+        """Add an RNA chain of the complex."""
+        #PLACEHOLDER-IKKI
+        raise NotImplementedError(
+            f"RNA chain {chain!r} in complex {self.name!r}: "
+            "RNA chains in complexes are not supported yet."
+        )
+
+    @property
+    def xinit(self) -> NDArray[np.float64]:
+        """Return the coordinates of all chains, in member order."""
+        return np.concatenate([comp.xinit for comp in self.members])
+
+
 COMPONENT_REGISTRY: dict[str, type[Component]] = {
     "protein": Protein,
-    "complex": Complex,
     "lipid": Lipid,
     "cooke_lipid": Lipid,
     "crowder": Crowder,

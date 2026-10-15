@@ -6,13 +6,13 @@ temp: 293.0
 ionic: 0.19
 pH: 7.0
 sysname: test
-topol: center
+topol: random
 fixed_lambda: 0.0
 eps_lj: 0.2
 cutoff_lj: 2.0
 cutoff_yu: 4.0
 steps: 1000000
-wfreq: 1000
+wfreq: 100
 platform: CPU
 threads: 1
 runtime: null

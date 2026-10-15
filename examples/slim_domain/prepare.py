@@ -13,10 +13,10 @@ sysname = 'test'
 L = 30
 
 # set the saving interval (number of integration steps)
-N_save = 1000
+N_save = 100
 
 # set final number of frames to save
-N_frames = 1000
+N_frames = 10000
 
 # PATH
 path = f'{cwd}/{sysname:s}'
@@ -31,7 +31,7 @@ config = Config(
   temp = 293, # K
   ionic = 0.19, # molar
   pH = 7.0,
-  topol = 'center',
+  topol = 'random',
 
   # RUNTIME SETTINGS
   wfreq = N_save, # dcd writing interval, 1 = 10 fs
@@ -65,8 +65,9 @@ components = Components(
   colabfold = 1, # PAE format (EBI AF=0, Colabfold=1&2)
   k_harmonic = 700., # Restraint force constant
 )
-
-components.add(name='test', nmol = 1)
-components.add(name='test', chain = 'A', nmol = 1)
+# one copy of every protein chain in input/test.cif (chains are read as
+# components test_A, test_B, ... with domains keyed the same way in domains.yaml),
+# plus 10 free copies of chain B
+components.add(name='test', nmol = 1, extra_chains = {'B': 10})
 
 components.write(path,name='components.yaml')

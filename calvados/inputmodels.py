@@ -90,6 +90,8 @@ class ComponentInput(BaseModel):
     ptm_locations: list[PositiveInt] = Field(default_factory=list)
 
     chain: str | None = None
+    # complexes: number of extra free copies of single chains
+    extra_chains: dict[str, NonNegativeInt] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_component_inputs(self) -> Self:

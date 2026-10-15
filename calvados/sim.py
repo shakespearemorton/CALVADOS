@@ -16,6 +16,7 @@ from . import build, interactions
 from .components import (
     COMPONENT_REGISTRY,
     Component,
+    ComplexGroup,
 )
 from .inputmodels import InputPath, SimulationInput, validate_inputs
 
@@ -84,11 +85,20 @@ class Sim:
     def make_components(self) -> None:
         """Instantiate components and initialize their properties and restraints."""
         self.components: list[Component] = [] # np.empty(0)
+        self.complexes: list[ComplexGroup] = []
         self.use_restraints = False
 
+        comps: list[Component] = []
         for name, comp_params in self.comp_dict.items():
-            component_class = COMPONENT_REGISTRY[comp_params.molecule_type]
-            comp = component_class(name, comp_params)
+            if comp_params.molecule_type == 'complex':
+                group = ComplexGroup(name, comp_params)
+                self.complexes.append(group)
+                comps.extend(group.members)
+            else:
+                component_class = COMPONENT_REGISTRY[comp_params.molecule_type]
+                comps.append(component_class(name, comp_params))
+
+        for comp in comps:
             comp.calc_properties(
                 pH=self.config.pH,
                 verbose=self.config.verbose,
@@ -118,6 +128,11 @@ class Sim:
         for comp in self.components:
             self.ncomponents += 1
             self.nmolecules += comp.params.nmol
+
+        # each complex copy counts as one molecule of one component
+        for group in self.complexes:
+            self.ncomponents += 1 - len(group.members)
+            self.nmolecules += group.nmol
 
         print(f'Total number of components in the system: {self.ncomponents}')
         print(f'Total number of molecules in the system: {self.nmolecules}')
@@ -260,6 +275,10 @@ class Sim:
                     axis=0
                 )
 
+        for group in self.complexes:
+            for idx in range(group.nmol):
+                self.place_complex(group)
+
         for cidx, comp in enumerate(self.components):
             for idx in range(comp.params.nmol):
                 if self.config.verbose:
@@ -278,8 +297,6 @@ class Sim:
                     'rna',
                 ]:
                     _ = self.place_molecule(comp)
-                elif comp.params.molecule_type == 'complex':
-                    _ = self.place_complex(comp)
                 elif comp.params.molecule_type in ['lipid','cooke_lipid']:
                     _ = self.place_bilayer(comp)
                 self.add_interactions(comp)
@@ -289,6 +306,8 @@ class Sim:
                     self.add_ext_restraints(comp)
 
         if self.config.custom_restraints:
+            if self.complexes:
+                raise ValueError("Custom restraints are not supported with complexes yet.")
             self.map_custom_restraints()
             self.add_custom_restraints()
 
@@ -424,12 +443,20 @@ class Sim:
             self.nparticles += 1
         return np.array(xs, dtype=np.float64)
     
-    def place_complex(self, comp: Component, ntries: int = 10000) -> FloatArray:
+    def place_complex(self, group: ComplexGroup) -> None:
         """
-        Place complexes
+        Place one copy of a complex, keeping the chains' relative orientation.
         """
 
-        return
+        offset = self.nparticles
+        self.place_molecule(group) # type: ignore
+        for comp in group.members:
+            self.add_mdtraj_topol(comp)
+            self.add_particles_system(comp.mws)
+            self.add_interactions(comp, offset)
+            if (self.slab_eq or self.config.ext_force) and comp.params.ext_restraint:
+                self.add_ext_restraints(comp, offset)
+            offset += comp.nbeads
 
     def place_bilayer(self, comp: Component, ntries: int = 10000) -> FloatArray:
         """
@@ -507,13 +534,14 @@ class Sim:
                 self.cos.addExclusion(excl[0], excl[1])
                 self.cn.addExclusion(excl[0], excl[1])
 
-    def add_interactions(self, comp: Component) -> None:
+    def add_interactions(self, comp: Component, offset: int | None = None) -> None:
         """
         Protein interactions for one molecule of composition comp
         """
 
         # Get indices of current comp in context of system
-        offset = self.nparticles - comp.nbeads 
+        if offset is None:
+            offset = self.nparticles - comp.nbeads
 
         # Add Ashbaugh-Hatch
         for sig, lam in zip(comp.sigmas, comp.lambdas):
@@ -554,10 +582,11 @@ class Sim:
             if comp.params.restraint:
                 comp.write_restraints(self.path) # type: ignore
 
-    def add_ext_restraints(self, comp: Component) -> None:
+    def add_ext_restraints(self, comp: Component, offset: int | None = None) -> None:
         """ Add external-potential restraints. """
 
-        offset = self.nparticles - comp.nbeads # to get indices of current comp in context of system
+        if offset is None:
+            offset = self.nparticles - comp.nbeads # to get indices of current comp in context of system
         for i in range(comp.nbeads):
             self.rcent.addParticle(i+offset)
 
