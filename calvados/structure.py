@@ -4,6 +4,7 @@ import warnings
 
 import numpy as np
 from MDAnalysis import AtomGroup, Universe
+from MDAnalysis.lib.distances import distance_array
 from MDAnalysis.lib.util import convert_aa_code
 from numpy.typing import NDArray
 from openmm import app
@@ -123,3 +124,20 @@ def positions(
     else:
         pos = ag.select_atoms("name CA").positions
     return pos / 10.0 - origin
+
+def go_pairs_from_structure(
+    xyz_i: NDArray[np.float64],
+    xyz_j: NDArray[np.float64],
+    cutoff: float = 0.95,
+) -> list[tuple[int, int, float]]:
+    """Return Go contacts between the beads of two molecules.
+
+    ``xyz_i`` and ``xyz_j`` (nm) must share a frame, e.g. two chains of a
+    complex. Contacts are bead pairs closer than ``cutoff`` (nm), returned as
+    0-based bead indices with their native distance (nm).
+    """
+    dist = distance_array(xyz_i, xyz_j)
+    return [
+        (int(i), int(j), float(dist[i, j]))
+        for i, j in zip(*np.nonzero(dist < cutoff))
+    ]

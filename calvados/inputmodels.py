@@ -65,6 +65,7 @@ class ComponentInput(BaseModel):
     fdomains : InputPath | None = None
     k_harmonic: float = 700.0
     k_go: float = 15.0
+    eps_go: NonNegativeFloat = 0.0
     use_com: bool = True
     periodic: bool = False
 

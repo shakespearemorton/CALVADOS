@@ -4,16 +4,15 @@ from calvados.cfg import Config, Job, Components
 import subprocess
 import numpy as np
 from argparse import ArgumentParser
-import sys
 
 cwd = os.getcwd()
-sysname = 'test'
+sysname = '4A3I'
 
 # set the side length of the cubic box
 L = 30
 
 # set the saving interval (number of integration steps)
-N_save = 100
+N_save = 1000
 
 # set final number of frames to save
 N_frames = 10000
@@ -62,12 +61,16 @@ components = Components(
   # RESTRAINTS
   restraint_type = 'harmonic', # harmonic or go
   use_com = True, # apply on centers of mass instead of CA
-  colabfold = 1, # PAE format (EBI AF=0, Colabfold=1&2)
   k_harmonic = 700., # Restraint force constant
+
+  # NONBONDED GO CONTACTS BETWEEN MOLECULES
+  #if eps_go = 0 no go potential will be added.
+  eps_go = 2.5, # default well depth (kJ/mol) for molecule pairs not in nb_go_forces.yaml
+
 )
 # one copy of every protein chain in input/test.cif (chains are read as
 # components test_A, test_B, ... with domains keyed the same way in domains.yaml),
-# plus 10 free copies of chain B
-components.add(name='test', nmol = 1, extra_chains = {'B': 10})
+# plus 10 free copies of chain B , extra_chains={'B': 10}
+components.add(name='4A3I', nmol = 1)
 
 components.write(path,name='components.yaml')

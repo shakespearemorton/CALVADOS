@@ -12,7 +12,7 @@ from openmm import app, unit
 from tqdm import tqdm
 from yaml import safe_load
 
-from . import build, interactions
+from . import build, interactions, structure
 from .components import (
     COMPONENT_REGISTRY,
     Component,
@@ -38,6 +38,9 @@ class Sim:
     settings. :meth:`build_system` prepares files and forces, and
     :meth:`simulate` executes or resumes the trajectory.
     """
+
+    # nonbonded Go force between molecules (None without Go contacts)
+    go: openmm.CustomNonbondedForce | None = None
 
     def __init__(
             self,
@@ -212,6 +215,8 @@ class Sim:
             self.eps_lj,self.eps_yu,self.config.cutoff_yu,factor=3.0
             )
 
+        self.init_go()
+
         self.nparticles = 0 # bead counter
         self.grid_counter = 0 # molecule counter for xy and xyz grids
 
@@ -332,6 +337,9 @@ class Sim:
         if ("lipid" in self.comp_types) or ("cooke_lipid" in self.comp_types):
             for force in [self.cos, self.cn]:
                 self.system.addForce(force)
+
+        if self.go is not None:
+            self.system.addForce(self.go)
 
         # Intramolecular forces
         for comp in self.components:
@@ -533,6 +541,8 @@ class Sim:
             if ("lipid" in self.comp_types) or ("cooke_lipid" in self.comp_types):
                 self.cos.addExclusion(excl[0], excl[1])
                 self.cn.addExclusion(excl[0], excl[1])
+            if self.go is not None:
+                self.go.addExclusion(excl[0], excl[1])
 
     def add_interactions(self, comp: Component, offset: int | None = None) -> None:
         """
@@ -559,6 +569,11 @@ class Sim:
         # Add Debye-Huckel
         for q in comp.qs:
             self.yu.addParticle([q])
+
+        # Add nonbonded Go (type 0 = no Go contacts)
+        if self.go is not None:
+            for i in range(comp.nbeads):
+                self.go.addParticle([self.go_types.get((comp.name, i), 0)])
 
         # Add Charge-Nonpolar Interaction
         if ("lipid" in self.comp_types) or ("cooke_lipid" in self.comp_types):
@@ -658,6 +673,131 @@ class Sim:
             crestr.append(float(r))
             crestr.append(float(k))
             self.custom_restr_abs.append(crestr)
+
+    def init_go(self) -> None:
+        """Set up nonbonded Go contacts between molecules.
+
+        Contacts are read from ``nb_go_contacts.txt`` in the input folder
+        if present, otherwise found between the chains of every complex. 
+        Well depths per molecule pair are read from
+        ``nb_go_forces.yaml`` in the input folder, defaulting to ``eps_go``.
+        The contacts used are written to ``nb_go_contacts.txt`` in ``path``.
+        """
+        self.go = None
+        self.go_types: dict[tuple[str, int], int] = {}
+
+        fcontacts = self.find_input_file('nb_go_contacts.txt')
+        if fcontacts is None and not self.complexes:
+            return
+
+        if fcontacts is not None:
+            contacts = self.parse_go_contacts(fcontacts)
+        else:
+            contacts = []
+            for group in self.complexes:
+                for idx, comp_i in enumerate(group.members):
+                    for comp_j in group.members[idx+1:]:
+                        contacts.extend(
+                            (comp_i.name, i, comp_j.name, j, r0)
+                            for i, j, r0 in structure.go_pairs_from_structure(
+                                comp_i.xinit, comp_j.xinit
+                            )
+                        )
+        self.write_go_contacts(contacts)
+
+        comps = {comp.name: comp for comp in self.components}
+        fforces = self.find_input_file('nb_go_forces.yaml')
+        well_depths: dict[str, dict[str, float]] = {}
+        if fforces is not None:
+            with open(fforces) as f:
+                well_depths = safe_load(f) or {}
+        for name_i, depths in well_depths.items():
+            for name in [name_i, *depths]:
+                if name not in comps:
+                    raise ValueError(f"Unknown molecule {name!r} in {fforces}.")
+
+        # one type per contact residue, shared by all copies of a molecule
+        types = self.go_types
+        table: dict[tuple[int, int], tuple[float, float]] = {} # (r0, eps)
+        for name_i, i, name_j, j, r0 in contacts:
+            if name_i == name_j:
+                raise ValueError(f"Go contacts within molecule {name_i!r} are not supported.")
+            for name, res in [(name_i, i), (name_j, j)]:
+                if name not in comps:
+                    raise ValueError(f"Unknown molecule {name!r} in Go contacts.")
+                if not 0 <= res < comps[name].nbeads:
+                    raise ValueError(f"Go contact residue {res+1} is outside molecule {name!r}.")
+            ti = types.setdefault((name_i, i), len(types) + 1)
+            tj = types.setdefault((name_j, j), len(types) + 1)
+            key = (min(ti, tj), max(ti, tj))
+            if key in table:
+                raise ValueError(f"Duplicate Go contact {name_i} {i+1} {name_j} {j+1}.")
+            table[key] = (r0, self.go_well_depth(well_depths, comps[name_i], comps[name_j]))
+
+        if not any(eps > 0 for _, eps in table.values()):
+            return
+
+        sigma = np.zeros((len(types) + 1, len(types) + 1))
+        eps = np.zeros_like(sigma)
+        for (ti, tj), (r0, eps_ij) in table.items():
+            sigma[ti, tj] = sigma[tj, ti] = r0
+            eps[ti, tj] = eps[tj, ti] = eps_ij
+        self.go = interactions.init_nonbonded_go(sigma, eps)
+        print(f'Nonbonded Go: {len(table)} contacts')
+
+    @staticmethod
+    def go_well_depth(
+        well_depths: Mapping[str, Mapping[str, float]],
+        comp_i: Component,
+        comp_j: Component,
+    ) -> float:
+        """Return the Go well depth (kJ/mol) between two molecules."""
+        eps_ij = (well_depths.get(comp_i.name) or {}).get(comp_j.name)
+        eps_ji = (well_depths.get(comp_j.name) or {}).get(comp_i.name)
+        if eps_ij is not None and eps_ji is not None and eps_ij != eps_ji:
+            raise ValueError(
+                f"Conflicting Go well depths for {comp_i.name} and {comp_j.name}."
+            )
+        if eps_ij is not None or eps_ji is not None:
+            return float(eps_ij if eps_ij is not None else eps_ji)
+        if comp_i.params.eps_go != comp_j.params.eps_go:
+            raise ValueError(
+                f"{comp_i.name} and {comp_j.name} have different eps_go; "
+                "set their Go well depth in nb_go_forces.yaml."
+            )
+        return comp_i.params.eps_go
+
+    def find_input_file(self, filename: str) -> str | None:
+        """Return ``filename`` in the components' input folder, if present."""
+        found = {
+            os.path.realpath(os.path.join(comp.params.pdb_folder, filename))
+            for comp in self.components
+            if comp.params.pdb_folder is not None
+        }
+        found = {f for f in found if os.path.isfile(f)}
+        if len(found) > 1:
+            raise ValueError(f"Found {filename} in several input folders: {sorted(found)}")
+        return found.pop() if found else None
+
+    def write_go_contacts(self, contacts: list[tuple[str, int, str, int, float]]) -> None:
+        """Write Go contacts with one-based residue indices."""
+
+        with open(f'{self.path}/nb_go_contacts.txt', 'w') as f:
+            f.write('# mol_i res_i mol_j res_j r0[nm]\n')
+            f.writelines(f'{a} {i+1} {b} {j+1} {r0:.4f}\n' for a, i, b, j, r0 in contacts)
+
+    @staticmethod
+    def parse_go_contacts(fcontacts: InputPath) -> list[tuple[str, int, str, int, float]]:
+        """Parse Go contacts, converting one-based residues to zero-based."""
+        contacts = []
+        with open(fcontacts,'r') as f:
+            for line in f:
+                spl = line.split('#')[0].split()
+                if spl:
+                    contacts.append(
+                        (spl[0], int(spl[1]) - 1, spl[2], int(spl[3]) - 1, float(spl[4]))
+                    )
+        return contacts
 
     @staticmethod
     def parse_custom_restraints(fcustom_restraints: InputPath) -> list[Any]:

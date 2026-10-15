@@ -356,3 +356,58 @@ def init_charge_nonpolar_interactions(
     cn.setCutoffDistance(rc*nanometer)
     cn.setForceGroup(1)
     return cn
+
+def init_nonbonded_go(
+    sigma: NDArray[np.float64],
+    eps: NDArray[np.float64],
+    go_cutoff: float = 2.0,
+    go_switch: float | None = None,
+    n: int = 12,
+    m: int = 10,
+) -> openmm.CustomNonbondedForce:
+    """Initialize the nonbonded Go force between molecules.
+
+    Uses a normalized n-m potential with its minimum of depth ``-eps`` at
+    ``r = sigma``. ``sigma`` (nm) and ``eps`` (kJ/mol) are square tables indexed
+    by the per-particle ``type``; type 0 (all zeros) does not interact. The
+    switching function takes the energy smoothly to zero between ``go_switch``
+    (default 0.9 * ``go_cutoff``) and ``go_cutoff``. The global parameter
+    ``go_scale`` scales all Go interactions.
+    """
+    if go_switch is None:
+        go_switch = 0.9 * go_cutoff
+    if not n > m > 0:
+        raise ValueError(f"Go exponents must satisfy n > m > 0; got n={n}, m={m}")
+    if not 0 < go_switch < go_cutoff:
+        raise ValueError(
+            f"Go distances must satisfy 0 < go_switch < go_cutoff; "
+            f"got {go_switch} and {go_cutoff} nm"
+        )
+    if np.max(sigma) >= go_switch:
+        raise ValueError(
+            f"go_switch ({go_switch} nm) must exceed the largest native Go "
+            f"distance ({np.max(sigma):.4f} nm)"
+        )
+
+    repulsive_coefficient = m / (n - m)
+    attractive_coefficient = n / (n - m)
+    go = openmm.CustomNonbondedForce(
+        f"go_scale*eps(type1,type2)*({repulsive_coefficient}*(sigma(type1,type2)/r)^{n}"
+        f"-{attractive_coefficient}*(sigma(type1,type2)/r)^{m})"
+    )
+    go.addGlobalParameter("go_scale", 1.0)
+    go.addPerParticleParameter("type")
+    ntypes = len(sigma)
+    go.addTabulatedFunction(
+        "sigma", openmm.Discrete2DFunction(ntypes, ntypes, sigma.flatten(order="F"))
+    )
+    go.addTabulatedFunction(
+        "eps", openmm.Discrete2DFunction(ntypes, ntypes, eps.flatten(order="F"))
+    )
+    go.setNonbondedMethod(openmm.CustomNonbondedForce.CutoffPeriodic)
+    go.setCutoffDistance(go_cutoff * nanometer)
+    go.setUseSwitchingFunction(True)
+    go.setSwitchingDistance(go_switch * nanometer)
+    go.setForceGroup(2)
+    go.setName("Go")
+    return go
