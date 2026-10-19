@@ -375,7 +375,7 @@ def init_nonbonded_go(
     ``go_scale`` scales all Go interactions.
     """
     if go_switch is None:
-        go_switch = 0.9 * go_cutoff
+        go_switch = 0.9* go_cutoff
     if not n > m > 0:
         raise ValueError(f"Go exponents must satisfy n > m > 0; got n={n}, m={m}")
     if not 0 < go_switch < go_cutoff:

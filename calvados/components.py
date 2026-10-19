@@ -1080,6 +1080,11 @@ class ComplexGroup:
         ags = {chain: structure.select_chain(u, chain) for chain in protein}
         origin = sum(ags.values()).center_of_mass() / 10.0  # complex COM in nm
 
+        domains = {}
+        if params.use_com and params.fdomains is not None:
+            with open(params.fdomains) as f:
+                domains = safe_load(f) or {}
+
         self.members: list[Component] = []
         for chain in protein:
             chain_params = params.model_copy(update={
@@ -1087,11 +1092,16 @@ class ComplexGroup:
                 "molecule_type": "protein",
                 "nmol": params.extra_chains.get(chain, 0),
             })
+            # COM only for residues in folded domains, CA elsewhere
+            com_mask = np.zeros(len(ags[chain].residues), dtype=bool)
+            if any(domains.get(chain_params.name) or []):
+                for ssdom in build.get_ssdomains(chain_params.name, params.fdomains):
+                    com_mask[ssdom] = True
             self.members.append(ComplexChain(
                 chain_params.name,
                 chain_params,
                 seq=structure.protein_sequence(ags[chain]),
-                xinit=structure.positions(ags[chain], params.use_com, origin),
+                xinit=structure.positions(ags[chain], com_mask, origin),
             ))
 
     def add_rna_chain(self, chain: str) -> None:

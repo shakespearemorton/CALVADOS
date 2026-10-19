@@ -9,13 +9,10 @@ cwd = os.getcwd()
 sysname = 'test'
 
 # set the side length of the cubic box
-L = 20
+L = 70
 
 # set the saving interval (number of integration steps)
-N_save = 1000
-
-# set final number of frames to save
-N_frames = 10000
+N_save = 10000
 
 # PATH
 path = f'{cwd}/{sysname:s}'
@@ -26,16 +23,15 @@ residues_file = f'{cwd}/input/residues_CALVADOS3.csv'
 config = Config(
   # GENERAL
   sysname = sysname, # name of simulation system
-  box = [L, L, L*10], # nm
-  temp = 293, # K
-  ionic = 0.19, # molar
+  box = [L, L, L], # nm
+  temp = 298, # K
+  ionic = 0.15, # molar
   pH = 7.0,
-  topol = 'slab',
-  slab_width = 20,
+  topol = 'random',
 
   # RUNTIME SETTINGS
   wfreq = N_save, # dcd writing interval, 1 = 10 fs
-  steps = N_frames*N_save, # number of simulation steps
+  steps = 3.1e8, # number of simulation steps
   platform = 'CPU', # or CUDA
   threads = 1,
   restart = 'checkpoint',
@@ -66,11 +62,11 @@ components = Components(
 
   # NONBONDED GO CONTACTS BETWEEN MOLECULES
   #if eps_go = 0 no go potential will be added.
-  eps_go = 4, # default well depth (kJ/mol) for molecule pairs not in nb_go_forces.yaml
+  eps_go = 3.6667, # default well depth (kJ/mol) for molecule pairs not in nb_go_forces.yaml
 
 )
 # one copy of every protein chain in input/test.cif (chains are read as
 # components test_A, test_B, ... with domains keyed the same way in domains.yaml),
 # plus 10 free copies of chain B , extra_chains={'B': 10}
-components.add(name='test', nmol = 5, extra_chains={'B': 10})
+components.add(name='test', nmol = 0, extra_chains={'A': 2,'B':1})
 components.write(path,name='components.yaml')

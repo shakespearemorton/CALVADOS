@@ -113,16 +113,17 @@ def protein_sequence(ag: AtomGroup) -> str:
 
 
 def positions(
-    ag: AtomGroup, use_com: bool, origin: NDArray[np.float64]
+    ag: AtomGroup, com_mask: NDArray[np.bool_], origin: NDArray[np.float64]
 ) -> NDArray[np.float64]:
     """Return one position (nm) per residue relative to ``origin`` (nm).
 
-    Uses residue centres of mass or CA atoms, as ``build.geometry_from_pdb``.
+    Residues where ``com_mask`` is True use their centre of mass, the rest
+    their CA atom.
     """
-    if use_com:
-        pos = np.array([res.atoms.center_of_mass() for res in ag.residues])
-    else:
-        pos = ag.select_atoms("name CA").positions
+    pos = ag.select_atoms("name CA").positions
+    if com_mask.any():
+        coms = np.array([res.atoms.center_of_mass() for res in ag.residues])
+        pos = np.where(com_mask[:, None], coms, pos)
     return pos / 10.0 - origin
 
 def go_pairs_from_structure(
