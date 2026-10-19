@@ -6,10 +6,10 @@ import numpy as np
 from argparse import ArgumentParser
 
 cwd = os.getcwd()
-sysname = '4A3I'
+sysname = 'test'
 
 # set the side length of the cubic box
-L = 30
+L = 20
 
 # set the saving interval (number of integration steps)
 N_save = 1000
@@ -26,11 +26,12 @@ residues_file = f'{cwd}/input/residues_CALVADOS3.csv'
 config = Config(
   # GENERAL
   sysname = sysname, # name of simulation system
-  box = [L, L, L], # nm
+  box = [L, L, L*10], # nm
   temp = 293, # K
   ionic = 0.19, # molar
   pH = 7.0,
-  topol = 'random',
+  topol = 'slab',
+  slab_width = 20,
 
   # RUNTIME SETTINGS
   wfreq = N_save, # dcd writing interval, 1 = 10 fs
@@ -65,12 +66,11 @@ components = Components(
 
   # NONBONDED GO CONTACTS BETWEEN MOLECULES
   #if eps_go = 0 no go potential will be added.
-  eps_go = 2.5, # default well depth (kJ/mol) for molecule pairs not in nb_go_forces.yaml
+  eps_go = 4, # default well depth (kJ/mol) for molecule pairs not in nb_go_forces.yaml
 
 )
 # one copy of every protein chain in input/test.cif (chains are read as
 # components test_A, test_B, ... with domains keyed the same way in domains.yaml),
 # plus 10 free copies of chain B , extra_chains={'B': 10}
-components.add(name='4A3I', nmol = 1)
-
+components.add(name='test', nmol = 5, extra_chains={'B': 10})
 components.write(path,name='components.yaml')

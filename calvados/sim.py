@@ -157,7 +157,7 @@ class Sim:
         self.nsolutes = sum(
             self.nmols_per_comp_type.get(comp_type, 0)
             for comp_type in self.solute_types
-        )
+        ) + sum(group.nmol for group in self.complexes) # each complex copy uses one grid slot
 
         # Re-order "solutes" before non-"solutes"
         solute_components: list[Component] = []
@@ -192,6 +192,7 @@ class Sim:
         # make components
         self.make_components()
         self.count_components()
+        self.reorder_components()
 
         # init interactions
         self.ah, self.yu = interactions.init_nonbonded_interactions(
